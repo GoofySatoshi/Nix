@@ -10,6 +10,7 @@ from schemas.agent import (
 from schemas.task import TaskCreate
 from services.agent_manager import create_agent, get_agent, get_agents, update_agent, delete_agent, start_agent, stop_agent, get_agent_types
 from services.task_executor import create_task
+from services.task_dispatcher import dispatcher
 from dependencies.auth import get_current_user
 
 router = APIRouter()
@@ -247,3 +248,20 @@ def auto_schedule_task(
         assigned_agent_id=best_agent.id,
         assigned_agent_name=best_agent.name
     )
+
+@router.post("/dispatcher/start")
+def start_dispatcher(current_user: User = Depends(get_current_user)):
+    """启动任务调度器"""
+    dispatcher.start()
+    return {"success": True, "message": "调度器已启动"}
+
+@router.post("/dispatcher/stop")
+def stop_dispatcher(current_user: User = Depends(get_current_user)):
+    """停止任务调度器"""
+    dispatcher.stop()
+    return {"success": True, "message": "调度器已停止"}
+
+@router.get("/dispatcher/status")
+def dispatcher_status(current_user: User = Depends(get_current_user)):
+    """获取调度器状态"""
+    return {"running": dispatcher._running}

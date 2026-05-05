@@ -4,12 +4,16 @@ from schemas.task import TaskCreate, TaskUpdate
 from services.agent_manager import get_agent_instance
 import traceback
 import json
+import logging
+
+logger = logging.getLogger(__name__)
 
 # 内存任务队列
 task_queue = []
 
 def _broadcast_task_update(task_id: int, status: str, extra: dict = None):
     """通过 WebSocket 广播任务状态更新"""
+    logger.info(f"[TaskExecutor._broadcast_task_update] 入参: task_id={task_id}, status={status}, extra_keys={list(extra.keys()) if extra else None}")
     try:
         from main import manager
         import asyncio
@@ -25,6 +29,7 @@ def _broadcast_task_update(task_id: int, status: str, extra: dict = None):
 
 def create_task(db: Session, task: TaskCreate) -> Task:
     """创建任务"""
+    logger.info(f"[TaskExecutor.create_task] 入参: name={task.name}, agent_id={task.agent_id}, priority={task.priority}")
     db_task = Task(
         name=task.name,
         description=task.description,
@@ -46,18 +51,26 @@ def create_task(db: Session, task: TaskCreate) -> Task:
     # 尝试执行任务
     execute_task(db, db_task.id)
     
+    logger.info(f"[TaskExecutor.create_task] 返回: task_id={db_task.id}")
     return db_task
 
 def get_task(db: Session, task_id: int) -> Task:
     """获取任务"""
-    return db.query(Task).filter(Task.id == task_id).first()
+    logger.info(f"[TaskExecutor.get_task] 入参: task_id={task_id}")
+    result = db.query(Task).filter(Task.id == task_id).first()
+    logger.info(f"[TaskExecutor.get_task] 返回: {'found' if result else 'None'}")
+    return result
 
 def get_tasks(db: Session) -> list[Task]:
     """获取所有任务"""
-    return db.query(Task).all()
+    logger.info("[TaskExecutor.get_tasks] 入参: 无")
+    result = db.query(Task).all()
+    logger.info(f"[TaskExecutor.get_tasks] 返回: {len(result)} 个任务")
+    return result
 
 def update_task(db: Session, task_id: int, task: TaskUpdate) -> Task:
     """更新任务"""
+    logger.info(f"[TaskExecutor.update_task] 入参: task_id={task_id}, name={task.name}, status={task.status}")
     db_task = get_task(db, task_id)
     if not db_task:
         return None
@@ -81,10 +94,12 @@ def update_task(db: Session, task_id: int, task: TaskUpdate) -> Task:
     # 尝试执行任务
     execute_task(db, db_task.id)
     
+    logger.info(f"[TaskExecutor.update_task] 返回: task_id={db_task.id}, status={db_task.status}")
     return db_task
 
 def delete_task(db: Session, task_id: int) -> bool:
     """删除任务"""
+    logger.info(f"[TaskExecutor.delete_task] 入参: task_id={task_id}")
     db_task = get_task(db, task_id)
     if not db_task:
         return False
@@ -95,10 +110,12 @@ def delete_task(db: Session, task_id: int) -> bool:
     
     db.delete(db_task)
     db.commit()
+    logger.info(f"[TaskExecutor.delete_task] 返回: True")
     return True
 
 def sort_task_queue(db: Session):
     """按优先级和依赖关系排序任务队列"""
+    logger.info(f"[TaskExecutor.sort_task_queue] 入参: queue_size={len(task_queue)}")
     # 首先按优先级排序
     task_queue.sort(key=lambda task_id: get_task(db, task_id).priority if get_task(db, task_id) else 0, reverse=True)
     
@@ -129,9 +146,11 @@ def sort_task_queue(db: Session):
     # 更新队列
     task_queue.clear()
     task_queue.extend(sorted_queue)
+    logger.info(f"[TaskExecutor.sort_task_queue] 返回: 排序后 queue_size={len(task_queue)}")
 
 def execute_task(db: Session, task_id: int):
     """执行任务 — 调用真实智能体实例"""
+    logger.info(f"[TaskExecutor.execute_task] 入参: task_id={task_id}")
     db_task = get_task(db, task_id)
     if not db_task:
         return
@@ -187,12 +206,14 @@ def execute_task(db: Session, task_id: int):
         db_task.status = "completed"
         db_task.execution_log = f"任务执行完成\n结果: {json.dumps(result, ensure_ascii=False)}"
         db.commit()
+        logger.info(f"[TaskExecutor.execute_task] task_id={task_id} 执行完成")
         _broadcast_task_update(task_id, "completed", {"result": result})
         
         # 执行完当前任务后，检查并执行队列中的其他任务
         for tid in list(task_queue):
             execute_task(db, tid)
     except Exception as e:
+        logger.error(f"[TaskExecutor.execute_task] task_id={task_id} 执行失败: {e}", exc_info=True)
         db_task.status = "failed"
         db_task.execution_log = f"执行失败: {str(e)}\n{traceback.format_exc()}"
         db.commit()

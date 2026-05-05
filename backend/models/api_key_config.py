@@ -13,6 +13,8 @@ class ApiKeyConfig(Base):
     api_key = Column(Text, nullable=False, default="")
     api_base_url = Column(String, nullable=True, default="")
     model_list_url = Column(String, nullable=True, default="") # 获取模型列表的接口地址
+    intent_model = Column(String, nullable=True, default="")  # 意图识别使用的模型名称，为空时使用主模型
     is_default = Column(Boolean, default=False)              # 是否默认使用
+    max_acceptance_rounds = Column(Integer, default=3)        # 验收最大循环次数
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

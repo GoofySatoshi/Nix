@@ -45,6 +45,7 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
       // token 过期或无效时清除
       if (response.status === 401) {
         clearAuthToken();
+        window.dispatchEvent(new CustomEvent('auth:required', { detail: '登录已过期，请重新登录' }));
         throw new Error('登录已过期，请重新登录');
       }
       const errorData = await response.json().catch(() => ({}));
@@ -124,24 +125,8 @@ export const taskApi = {
     const qs = query.toString();
     return request<any[]>(`/api/tasks${qs ? '?' + qs : ''}`);
   },
-  
-  createTask: (taskData: any) => request<any>('/api/tasks', {
-    method: 'POST',
-    body: JSON.stringify(taskData),
-  }),
 
-  updateTask: (id: number, taskData: any) => request<any>(`/api/tasks/${id}`, {
-    method: 'PUT',
-    body: JSON.stringify(taskData),
-  }),
-
-  deleteTask: (id: number) => request<any>(`/api/tasks/${id}`, {
-    method: 'DELETE',
-  }),
-
-  executeTask: (id: number) => request<any>(`/api/tasks/${id}/execute`, {
-    method: 'POST',
-  }),
+  getSteps: (id: number) => request<any[]>(`/api/tasks/${id}/steps`),
 };
 
 // ============ 设置相关 API ============
@@ -154,7 +139,9 @@ interface ApiKeyConfig {
   api_key: string;
   api_base_url?: string;
   model_list_url?: string;
+  intent_model?: string;
   is_default?: boolean;
+  max_acceptance_rounds?: number;
 }
 
 interface FetchModelsResult {
@@ -206,21 +193,85 @@ interface ChatConfigItem {
   is_default: boolean;
 }
 
+export interface ToolCallTrace {
+  tool_name: string;
+  parameters: Record<string, any>;
+  result: string;
+  success: boolean;
+}
+
 interface ChatResponse {
   reply: string;
   model_name: string;
   vendor: string;
   config_name: string;
+  tool_calls?: ToolCallTrace[];
+  intent?: string;
+  task_id?: number;
 }
 
 export const chatApi = {
   getConfigs: () => request<ChatConfigItem[]>('/api/chat/configs'),
 
-  sendMessage: (configId: number, messages: ChatMessage[], model?: string): Promise<ChatResponse> =>
+  sendMessage: (configId: number | null, messages: ChatMessage[], model?: string, agentId?: number): Promise<ChatResponse> =>
     request<ChatResponse>('/api/chat', {
       method: 'POST',
-      body: JSON.stringify({ config_id: configId, messages, model }),
+      body: JSON.stringify({ config_id: configId, messages, model, agent_id: agentId }),
     }),
+
+  streamMessage: (configId: number | null, messages: ChatMessage[], model?: string, agentId?: number, signal?: AbortSignal) => {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    if (authToken) {
+      headers['Authorization'] = `Bearer ${authToken}`;
+    }
+    return fetch(`${API_BASE_URL}/api/chat/stream`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        config_id: configId,
+        messages,
+        model,
+        agent_id: agentId,
+      }),
+      signal,
+    });
+  },
+
+  abortTask: async (taskId: number) => {
+    return request(`/api/chat/abort/${taskId}`, { method: 'POST' });
+  },
+};
+
+// ========== 消息管理 API ==========
+export const messageApi = {
+  getMessages: (agentId?: number, limit: number = 50) => {
+    const params = new URLSearchParams();
+    if (agentId !== undefined) params.set('agent_id', String(agentId));
+    params.set('limit', String(limit));
+    const qs = params.toString();
+    return request<any[]>(`/api/messages${qs ? '?' + qs : ''}`);
+  },
+
+  saveMessage: (data: any) =>
+    request<any>('/api/messages', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  saveBatch: (messages: any[]) =>
+    request<any[]>('/api/messages/batch', {
+      method: 'POST',
+      body: JSON.stringify({ messages }),
+    }),
+
+  clearMessages: (agentId?: number) => {
+    const params = new URLSearchParams();
+    if (agentId !== undefined) params.set('agent_id', String(agentId));
+    const qs = params.toString();
+    return request<any>(`/api/messages${qs ? '?' + qs : ''}`, { method: 'DELETE' });
+  },
 };
 
 // ========== AI工具箱API ==========
@@ -285,6 +336,68 @@ export const skillsApi = {
     request<any>('/api/skills/directory', { method: 'POST', body: JSON.stringify({ path }) }),
   deleteDirectory: (path: string) =>
     request<any>(`/api/skills/directory?path=${encodeURIComponent(path)}`, { method: 'DELETE' }),
+};
+
+// ========== 记忆管理 API ==========
+export const memoryApi = {
+  getCategories: () =>
+    request<{ categories: string[]; project_categories: string[] }>('/api/memories/categories'),
+
+  getMemories: (agentName: string) =>
+    request<{
+      agent_name: string;
+      memories: Array<{ category: string; content: string }>;
+      raw_content: string;
+      last_updated: string | null;
+    }>(`/api/memories/${encodeURIComponent(agentName)}`),
+
+  getProjectMemories: (workspace?: string) => {
+    const params = workspace ? `?workspace=${encodeURIComponent(workspace)}` : '';
+    return request<{
+      memories: Array<{ category: string; content: string }>;
+      raw_content: string;
+      last_updated: string | null;
+    }>(`/api/memories/project${params}`);
+  },
+
+  getFullMemories: (agentName: string, workspace?: string) => {
+    const params = workspace ? `?workspace=${encodeURIComponent(workspace)}` : '';
+    return request<{
+      agent_name: string;
+      memories: Array<{ category: string; content: string }>;
+      raw_content: string;
+      last_updated: string | null;
+    }>(`/api/memories/${encodeURIComponent(agentName)}/full${params}`);
+  },
+
+  addMemory: (agentName: string, data: { category: string; content: string; workspace?: string }) =>
+    request<{ success: boolean; message: string }>(
+      `/api/memories/${encodeURIComponent(agentName)}/add`,
+      { method: 'POST', body: JSON.stringify(data) }
+    ),
+
+  deleteMemory: (agentName: string, data: { category: string; content: string; workspace?: string }) =>
+    request<{ success: boolean; message: string }>(
+      `/api/memories/${encodeURIComponent(agentName)}/delete`,
+      { method: 'POST', body: JSON.stringify(data) }
+    ),
+
+  updateMemory: (agentName: string, data: { category: string; old_content: string; new_content: string; workspace?: string }) =>
+    request<{ success: boolean; message: string }>(
+      `/api/memories/${encodeURIComponent(agentName)}/update`,
+      { method: 'PUT', body: JSON.stringify(data) }
+    ),
+
+  refineMemories: (agentName: string, data?: { config_id?: number; model?: string }) =>
+    request<{
+      success: boolean;
+      message: string;
+      refined_memories: Array<{ category: string; content: string }>;
+      raw_content: string;
+    }>(`/api/memories/${encodeURIComponent(agentName)}/refine`, {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }),
 };
 
 // ========== 数据库连接API ==========

@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { settingsApi, dbConnectionApi, environmentApi, authApi } from '../services/api';
+import React, { useState, useEffect, useMemo } from 'react';
+import { settingsApi, environmentApi, authApi } from '../services/api';
+import { API_BASE_URL } from '../constants/api';
 
 const VENDOR_OPTIONS = [
   { value: 'openai', label: 'OpenAI' },
@@ -87,21 +88,43 @@ const SettingsPanel: React.FC = () => {
   const [envLoading, setEnvLoading] = useState(false);
   const [envSaved, setEnvSaved] = useState(false);
 
+  // 系统设置状态
+  const [systemSettings, setSystemSettings] = useState<{
+    intent_model: string;
+    plan_model: string;
+    acceptance_model: string;
+    max_acceptance_rounds: number;
+    max_tool_iterations: number;
+  }>({
+    intent_model: '',
+    plan_model: '',
+    acceptance_model: '',
+    max_acceptance_rounds: 3,
+    max_tool_iterations: 30,
+  });
+  const [sysSettingsLoading, setSysSettingsLoading] = useState(false);
+  const [sysSettingsSaved, setSysSettingsSaved] = useState(false);
+
+  // 聚合所有可用模型（从 API Key 配置中）
+  const allAvailableModels = useMemo(() => {
+    const models = new Set<string>();
+    configs.forEach(cfg => {
+      if (cfg.model_name) models.add(cfg.model_name);
+      let list: any = cfg.model_list;
+      if (typeof list === 'string') {
+        try { list = JSON.parse(list); } catch { list = undefined; }
+      }
+      if (Array.isArray(list)) {
+        list.forEach((m: any) => { if (typeof m === 'string' && m) models.add(m); });
+      }
+    });
+    return Array.from(models).sort();
+  }, [configs]);
+
   // 用户资料状态
   const [user, setUser] = useState<{ id: number; username: string; email: string; avatar?: string } | null>(null);
   const [showAvatarModal, setShowAvatarModal] = useState(false);
   const [avatarInput, setAvatarInput] = useState('');
-
-  // 数据库连接状态
-  const [dbConnections, setDbConnections] = useState<any[]>([]);
-  const [showDbModal, setShowDbModal] = useState(false);
-  const [editingDbId, setEditingDbId] = useState<number | null>(null);
-  const [dbForm, setDbForm] = useState({
-    name: '', db_type: 'mysql', host: 'localhost', port: 3306,
-    username: '', password: '', database_name: '', extra_params: {}
-  });
-  const [dbTestResult, setDbTestResult] = useState<{id: number, success: boolean, message: string, latency?: number} | null>(null);
-  const [deleteDbId, setDeleteDbId] = useState<number | null>(null);
 
   useEffect(() => { loadConfigs(); }, []);
 
@@ -113,11 +136,11 @@ const SettingsPanel: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    loadDbConnections();
+    authApi.getProfile().then(data => setUser(data)).catch(() => {});
   }, []);
 
   useEffect(() => {
-    authApi.getProfile().then(data => setUser(data)).catch(() => {});
+    loadSystemSettings();
   }, []);
 
   const loadConfigs = async () => {
@@ -284,108 +307,55 @@ const SettingsPanel: React.FC = () => {
     }
   };
 
-  // ===== 数据库连接 =====
-  const loadDbConnections = async () => {
+  // ===== 系统设置 =====
+  const loadSystemSettings = async () => {
+    setSysSettingsLoading(true);
     try {
-      const data = await dbConnectionApi.list();
-      setDbConnections(data);
-    } catch (err) {}
+      const res = await fetch(`${API_BASE_URL}/api/system-settings`, {
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('auth_token')}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSystemSettings({
+          intent_model: data.intent_model || '',
+          plan_model: data.plan_model || '',
+          acceptance_model: data.acceptance_model || '',
+          max_acceptance_rounds: typeof data.max_acceptance_rounds === 'number' ? data.max_acceptance_rounds : 3,
+          max_tool_iterations: typeof data.max_tool_iterations === 'number' ? data.max_tool_iterations : 30,
+        });
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setSysSettingsLoading(false);
+    }
   };
 
-  const dbTypeDefaults: Record<string, {port: number, needsDb: boolean, needsAuth: boolean}> = {
-    mysql: { port: 3306, needsDb: true, needsAuth: true },
-    postgresql: { port: 5432, needsDb: true, needsAuth: true },
-    redis: { port: 6379, needsDb: false, needsAuth: false },
-    elasticsearch: { port: 9200, needsDb: false, needsAuth: false },
-    mongodb: { port: 27017, needsDb: true, needsAuth: true },
-  };
-
-  const dbTypeLabels: Record<string, string> = {
-    mysql: 'MySQL',
-    postgresql: 'PostgreSQL',
-    redis: 'Redis',
-    elasticsearch: 'ElasticSearch',
-    mongodb: 'MongoDB',
-  };
-
-  const openCreateDb = () => {
-    setEditingDbId(null);
-    setDbForm({ name: '', db_type: 'mysql', host: 'localhost', port: 3306, username: '', password: '', database_name: '', extra_params: {} });
-    setDbTestResult(null);
-    setShowDbModal(true);
-  };
-
-  const openEditDb = (conn: any) => {
-    setEditingDbId(conn.id);
-    setDbForm({
-      name: conn.name,
-      db_type: conn.db_type,
-      host: conn.host,
-      port: conn.port,
-      username: conn.username || '',
-      password: '',
-      database_name: conn.database_name || '',
-      extra_params: conn.extra_params || {},
-    });
-    setDbTestResult(null);
-    setShowDbModal(true);
-  };
-
-  const handleDbTypeChange = (dbType: string) => {
-    const defaults = dbTypeDefaults[dbType] || { port: 3306, needsDb: true, needsAuth: true };
-    setDbForm(p => ({
-      ...p,
-      db_type: dbType,
-      port: defaults.port,
-      database_name: defaults.needsDb ? p.database_name : '',
-      username: defaults.needsAuth ? p.username : '',
-      password: defaults.needsAuth ? p.password : '',
-    }));
-  };
-
-  const handleDbSave = async () => {
-    if (!dbForm.name.trim() || !dbForm.host.trim()) return;
+  const saveSystemSettings = async () => {
+    setSysSettingsLoading(true);
+    setSysSettingsSaved(false);
     setMessage(null);
     try {
-      const payload = { ...dbForm };
-      if (editingDbId) {
-        if (!payload.password) delete (payload as any).password;
-        await dbConnectionApi.update(editingDbId, payload);
+      const res = await fetch(`${API_BASE_URL}/api/system-settings`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+        },
+        body: JSON.stringify(systemSettings)
+      });
+      if (res.ok) {
+        setSysSettingsSaved(true);
+        setMessage({ type: 'success', text: '系统配置已保存' });
+        setTimeout(() => setSysSettingsSaved(false), 2000);
       } else {
-        await dbConnectionApi.create(payload);
+        setMessage({ type: 'error', text: '保存系统配置失败' });
       }
-      setShowDbModal(false);
-      loadDbConnections();
-      setMessage({ type: 'success', text: editingDbId ? '连接已更新' : '新连接已创建' });
-    } catch (err: any) {
-      setMessage({ type: 'error', text: err.message || '保存失败' });
-    }
-  };
-
-  const handleDbDelete = async () => {
-    if (!deleteDbId) return;
-    try {
-      await dbConnectionApi.delete(deleteDbId);
-      setDeleteDbId(null);
-      loadDbConnections();
-      setMessage({ type: 'success', text: '连接已删除' });
-    } catch (err: any) {
-      setMessage({ type: 'error', text: err.message || '删除失败' });
-    }
-  };
-
-  const handleDbTest = async (id: number) => {
-    setDbTestResult(null);
-    try {
-      const result = await dbConnectionApi.test(id);
-      setDbTestResult({ id, success: result.success, message: result.message, latency: result.latency_ms });
-      if (result.success) {
-        setMessage({ type: 'success', text: `连接成功，延迟 ${result.latency_ms}ms` });
-      } else {
-        setMessage({ type: 'error', text: result.message });
-      }
-    } catch (err: any) {
-      setMessage({ type: 'error', text: err.message || '测试失败' });
+    } catch (e) {
+      console.error(e);
+      setMessage({ type: 'error', text: '保存系统配置失败' });
+    } finally {
+      setSysSettingsLoading(false);
     }
   };
 
@@ -534,6 +504,116 @@ const SettingsPanel: React.FC = () => {
           <button onClick={() => setMessage(null)} className="settings-message-close">x</button>
         </div>
       )}
+
+      {/* ===== 系统配置区段 ===== */}
+      <div className="settings-section" style={{ marginBottom: '32px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+          <h4 style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>系统配置</h4>
+        </div>
+
+        <div className="card glass" style={{ padding: '24px' }}>
+          {/* 意图识别模型 */}
+          <div className="form-group">
+            <label className="form-label">意图识别模型</label>
+            <select
+              className="input"
+              value={systemSettings.intent_model}
+              onChange={e => setSystemSettings(p => ({ ...p, intent_model: e.target.value }))}
+              disabled={sysSettingsLoading}
+            >
+              <option value="">使用主模型</option>
+              {allAvailableModels.map(m => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </select>
+            <span className="form-hint">用于意图分类的模型</span>
+          </div>
+
+          {/* 任务规划模型 */}
+          <div className="form-group">
+            <label className="form-label">任务规划模型</label>
+            <select
+              className="input"
+              value={systemSettings.plan_model}
+              onChange={e => setSystemSettings(p => ({ ...p, plan_model: e.target.value }))}
+              disabled={sysSettingsLoading}
+            >
+              <option value="">使用主模型</option>
+              {allAvailableModels.map(m => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </select>
+            <span className="form-hint">用于生成待办清单和任务拆分</span>
+          </div>
+
+          {/* 验收标准模型 */}
+          <div className="form-group">
+            <label className="form-label">验收标准模型</label>
+            <select
+              className="input"
+              value={systemSettings.acceptance_model}
+              onChange={e => setSystemSettings(p => ({ ...p, acceptance_model: e.target.value }))}
+              disabled={sysSettingsLoading}
+            >
+              <option value="">使用主模型</option>
+              {allAvailableModels.map(m => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </select>
+            <span className="form-hint">用于生成验收标准</span>
+          </div>
+
+          {/* 验收最大循环次数 */}
+          <div className="form-group">
+            <label className="form-label">验收最大循环次数</label>
+            <select
+              className="input"
+              value={systemSettings.max_acceptance_rounds}
+              onChange={e => setSystemSettings(p => ({ ...p, max_acceptance_rounds: Number(e.target.value) }))}
+              disabled={sysSettingsLoading}
+            >
+              <option value={1}>1 轮</option>
+              <option value={2}>2 轮</option>
+              <option value={3}>3 轮</option>
+              <option value={4}>4 轮</option>
+              <option value={5}>5 轮</option>
+              <option value={0}>无限制</option>
+            </select>
+            <span className="form-hint">0 表示无限制</span>
+          </div>
+
+          {/* 工具调用最大次数 */}
+          <div className="form-group">
+            <label className="form-label">工具调用最大次数</label>
+            <input
+              type="number"
+              className="input"
+              min={8}
+              max={100}
+              value={systemSettings.max_tool_iterations}
+              onChange={e => {
+                let v = Number(e.target.value);
+                if (v < 8) v = 8;
+                if (v > 100) v = 100;
+                setSystemSettings(p => ({ ...p, max_tool_iterations: v }));
+              }}
+              placeholder="单次任务最大工具调用次数（8-100）"
+              disabled={sysSettingsLoading}
+            />
+            <span className="form-hint">单次任务最大工具调用次数（8-100）</span>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '8px' }}>
+            <button
+              className="btn btn-primary"
+              onClick={saveSystemSettings}
+              disabled={sysSettingsLoading}
+            >
+              {sysSettingsSaved ? '已保存' : (sysSettingsLoading ? '保存中...' : '保存配置')}
+            </button>
+          </div>
+        </div>
+      </div>
 
       {/* ===== API Key 配置区段 ===== */}
       <div className="settings-section" style={{ marginBottom: '32px' }}>
@@ -773,55 +853,6 @@ const SettingsPanel: React.FC = () => {
 
       </div>
 
-      {/* ===== 数据库连接区段 ===== */}
-      <div className="settings-section" style={{ marginBottom: '32px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
-          <h4 style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>数据库连接</h4>
-        </div>
-
-        <div style={{ marginBottom: '20px' }}>
-          <button className="btn btn-primary" onClick={openCreateDb}>
-            + 添加连接
-          </button>
-        </div>
-
-        {dbConnections.length === 0 ? (
-          <div className="card glass" style={{ textAlign: 'center', padding: '48px', color: 'var(--text-muted)' }}>
-            <p style={{ fontSize: '1rem', marginBottom: '8px' }}>暂无数据库连接</p>
-            <p>点击上方按钮添加第一个连接</p>
-          </div>
-        ) : (
-          <div className="key-config-list">
-            {dbConnections.map(conn => (
-              <div key={conn.id} className="key-config-card card glass">
-                <div className="key-config-main">
-                  <div className="key-config-info">
-                    <div className="key-config-name">
-                      {conn.name}
-                      <span className={`db-type-badge db-type-${conn.db_type}`}>{dbTypeLabels[conn.db_type] || conn.db_type}</span>
-                      {dbTestResult && dbTestResult.id === conn.id && (
-                        <span className={`status-badge ${dbTestResult.success ? 'success' : 'error'}`} style={{ marginLeft: '8px' }}>
-                          {dbTestResult.success ? `已连接 ${dbTestResult.latency}ms` : '连接失败'}
-                        </span>
-                      )}
-                    </div>
-                    <div className="key-config-meta">
-                      <span className="key-config-model">{conn.host}:{conn.port}</span>
-                      {conn.database_name && <span className="key-config-endpoint">{conn.database_name}</span>}
-                    </div>
-                  </div>
-                  <div className="key-config-actions">
-                    <button className="btn btn-sm btn-secondary" onClick={() => handleDbTest(conn.id)}>测试</button>
-                    <button className="btn btn-sm btn-secondary" onClick={() => openEditDb(conn)}>编辑</button>
-                    <button className="btn btn-sm btn-danger" onClick={() => setDeleteDbId(conn.id)}>删除</button>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
       {/* ===== Key 删除确认 ===== */}
       {deleteId && (
         <div className="modal-overlay" onClick={() => setDeleteId(null)}>
@@ -831,96 +862,6 @@ const SettingsPanel: React.FC = () => {
             <div className="modal-actions" style={{ justifyContent: 'center' }}>
               <button className="btn btn-danger" onClick={handleDelete}>确认删除</button>
               <button className="btn btn-secondary" onClick={() => setDeleteId(null)}>取消</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ===== 数据库连接创建/编辑模态框 ===== */}
-      {showDbModal && (
-        <div className="modal-overlay" onClick={() => setShowDbModal(false)}>
-          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '560px' }}>
-            <h3>{editingDbId ? '编辑连接' : '添加连接'}</h3>
-
-            <div className="form-group">
-              <label className="form-label">连接名称</label>
-              <input type="text" className="input" value={dbForm.name}
-                onChange={e => setDbForm(p => ({ ...p, name: e.target.value }))}
-                placeholder="例如：生产环境 MySQL" />
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">数据库类型</label>
-              <select className="input" value={dbForm.db_type}
-                onChange={e => handleDbTypeChange(e.target.value)}>
-                <option value="mysql">MySQL</option>
-                <option value="postgresql">PostgreSQL</option>
-                <option value="redis">Redis</option>
-                <option value="elasticsearch">ElasticSearch</option>
-                <option value="mongodb">MongoDB</option>
-              </select>
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">主机</label>
-              <input type="text" className="input" value={dbForm.host}
-                onChange={e => setDbForm(p => ({ ...p, host: e.target.value }))}
-                placeholder="localhost" />
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">端口</label>
-              <input type="number" className="input" value={dbForm.port}
-                onChange={e => setDbForm(p => ({ ...p, port: parseInt(e.target.value) || 0 }))}
-                placeholder="3306" />
-            </div>
-
-            {(dbTypeDefaults[dbForm.db_type]?.needsAuth ?? true) && (
-              <>
-                <div className="form-group">
-                  <label className="form-label">用户名</label>
-                  <input type="text" className="input" value={dbForm.username}
-                    onChange={e => setDbForm(p => ({ ...p, username: e.target.value }))}
-                    placeholder="username" />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">密码</label>
-                  <input type="password" className="input" value={dbForm.password}
-                    onChange={e => setDbForm(p => ({ ...p, password: e.target.value }))}
-                    placeholder={editingDbId ? '留空则不修改' : 'password'} />
-                </div>
-              </>
-            )}
-
-            {(dbTypeDefaults[dbForm.db_type]?.needsDb ?? true) && (
-              <div className="form-group">
-                <label className="form-label">数据库名</label>
-                <input type="text" className="input" value={dbForm.database_name}
-                  onChange={e => setDbForm(p => ({ ...p, database_name: e.target.value }))}
-                  placeholder="database" />
-              </div>
-            )}
-
-            <div className="modal-actions">
-              <button className="btn btn-primary" onClick={handleDbSave}
-                disabled={!dbForm.name.trim() || !dbForm.host.trim()}>
-                {editingDbId ? '更新' : '创建'}
-              </button>
-              <button className="btn btn-secondary" onClick={() => setShowDbModal(false)}>取消</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ===== 数据库连接删除确认 ===== */}
-      {deleteDbId && (
-        <div className="modal-overlay" onClick={() => setDeleteDbId(null)}>
-          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '400px', textAlign: 'center' }}>
-            <h3>确认删除</h3>
-            <p style={{ color: 'var(--text-secondary)', marginBottom: '20px' }}>确定要删除这个数据库连接吗？</p>
-            <div className="modal-actions" style={{ justifyContent: 'center' }}>
-              <button className="btn btn-danger" onClick={handleDbDelete}>确认删除</button>
-              <button className="btn btn-secondary" onClick={() => setDeleteDbId(null)}>取消</button>
             </div>
           </div>
         </div>

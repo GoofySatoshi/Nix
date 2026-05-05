@@ -75,3 +75,45 @@ def execute_task_endpoint(task_id: int, db: Session = Depends(get_db), current_u
     execute_task(db, task_id)
     db.refresh(db_task)
     return {"message": "Task execution triggered", "task_id": task_id, "status": db_task.status}
+
+@router.get("/{task_id}/progress")
+def get_task_progress(
+    task_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """获取任务执行进度"""
+    from services.task_dispatcher import dispatcher
+
+    task = db.query(Task).filter(Task.id == task_id).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+
+    progress_info = dispatcher.get_task_progress(task_id)
+
+    return {
+        "task_id": task_id,
+        "status": task.status,
+        "progress": getattr(task, 'progress', None) or progress_info["progress"],
+        "progress_message": getattr(task, 'progress_message', None) or progress_info["message"],
+        "agent_id": task.agent_id,
+    }
+
+
+@router.get("/{task_id}/steps")
+def get_task_steps(task_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """获取任务的所有步骤（待办清单）"""
+    from models.workflow import WorkflowStep
+    steps = db.query(WorkflowStep).filter(
+        WorkflowStep.task_id == task_id
+    ).order_by(WorkflowStep.order).all()
+    return [
+        {
+            "id": s.id,
+            "order": s.order,
+            "name": s.name,
+            "description": s.description,
+            "status": s.status,
+        }
+        for s in steps
+    ]

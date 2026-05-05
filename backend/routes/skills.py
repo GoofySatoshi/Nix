@@ -1,8 +1,12 @@
 import os
 import logging
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.orm import Session
 from dependencies.auth import get_current_user
 from models.user import User
+from models.database import get_db
+from models.skill import Skill
 from schemas.skill import (
     SkillTreeNode,
     SkillTreeResponse,
@@ -12,13 +16,15 @@ from schemas.skill import (
     SkillDirectoryCreateRequest,
     SkillOperationResponse,
 )
+from services.skill_service import write_skill_file, delete_skill_file as svc_delete_skill_file
+from pydantic import BaseModel
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-# Skills 根目录
+# Skills 根目录（项目根目录下的 skills/）
 SKILLS_ROOT = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "skills"
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "skills"
 )
 
 
@@ -172,4 +178,210 @@ async def delete_skill_directory(
     os.rmdir(abs_path)
     logger.info(f"Skill目录已删除: {path}")
     return SkillOperationResponse(success=True, message="目录删除成功", path=path)
+
+
+# === Skill CRUD Schemas ===
+
+class SkillCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    content: str
+    scope: str  # "agent" 或 "project"
+    keywords: Optional[list[str]] = None
+    category: Optional[str] = "general"
+    agent_id: Optional[int] = None
+    workspace: Optional[str] = None
+
+
+class SkillUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    content: Optional[str] = None
+    keywords: Optional[list[str]] = None
+    category: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class SkillResponse(BaseModel):
+    id: int
+    name: str
+    description: Optional[str]
+    content: str
+    scope: str
+    keywords: Optional[list[str]]
+    category: Optional[str]
+    agent_id: Optional[int]
+    is_active: bool
+
+    class Config:
+        from_attributes = True
+
+
+# === Skill CRUD Routes ===
+
+@router.post("/manage", response_model=SkillResponse)
+async def create_skill(
+    payload: SkillCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """创建 Skill"""
+    if payload.scope not in ("agent", "project"):
+        raise HTTPException(status_code=400, detail="scope 必须是 'agent' 或 'project'")
+
+    if payload.scope == "agent" and payload.agent_id is None:
+        raise HTTPException(status_code=400, detail="scope=agent 时必须提供 agent_id")
+
+    # 确定 workspace（项目级 skill 需要）
+    workspace = payload.workspace
+    if not workspace:
+        workspace = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+    skill = Skill(
+        name=payload.name,
+        description=payload.description,
+        content=payload.content,
+        scope=payload.scope,
+        keywords=payload.keywords or [],
+        category=payload.category,
+        agent_id=payload.agent_id,
+    )
+    db.add(skill)
+    db.commit()
+    db.refresh(skill)
+
+    if payload.scope == "project":
+        try:
+            write_skill_file(
+                workspace=workspace,
+                name=skill.name,
+                description=skill.description or "",
+                keywords=skill.keywords or [],
+                category=skill.category or "general",
+                content=skill.content,
+            )
+        except Exception as e:
+            logger.warning(f"写入项目级 skill 文件失败: {e}")
+
+    return skill
+
+
+@router.get("/manage", response_model=list[SkillResponse])
+async def list_skills(
+    scope: Optional[str] = Query(None),
+    agent_id: Optional[int] = Query(None),
+    is_active: Optional[bool] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """获取 Skill 列表，支持筛选"""
+    query = db.query(Skill)
+    if scope is not None:
+        query = query.filter(Skill.scope == scope)
+    if agent_id is not None:
+        query = query.filter(Skill.agent_id == agent_id)
+    if is_active is not None:
+        query = query.filter(Skill.is_active == is_active)
+    skills = query.order_by(Skill.id.desc()).all()
+    return skills
+
+
+@router.get("/manage/{skill_id}", response_model=SkillResponse)
+async def get_skill(
+    skill_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """获取 Skill 详情"""
+    skill = db.query(Skill).filter(Skill.id == skill_id).first()
+    if not skill:
+        raise HTTPException(status_code=404, detail="Skill 不存在")
+    return skill
+
+
+@router.put("/manage/{skill_id}", response_model=SkillResponse)
+async def update_skill(
+    skill_id: int,
+    payload: SkillUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """更新 Skill"""
+    skill = db.query(Skill).filter(Skill.id == skill_id).first()
+    if not skill:
+        raise HTTPException(status_code=404, detail="Skill 不存在")
+
+    update_fields = {
+        "name": payload.name,
+        "description": payload.description,
+        "content": payload.content,
+        "keywords": payload.keywords,
+        "category": payload.category,
+        "is_active": payload.is_active,
+    }
+    for field, value in update_fields.items():
+        if value is not None:
+            setattr(skill, field, value)
+
+    db.commit()
+    db.refresh(skill)
+
+    if skill.scope == "project":
+        workspace = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        try:
+            write_skill_file(
+                workspace=workspace,
+                name=skill.name,
+                description=skill.description or "",
+                keywords=skill.keywords or [],
+                category=skill.category or "general",
+                content=skill.content,
+            )
+        except Exception as e:
+            logger.warning(f"更新项目级 skill 文件失败: {e}")
+
+    return skill
+
+
+@router.delete("/manage/{skill_id}")
+async def delete_skill(
+    skill_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """删除 Skill"""
+    skill = db.query(Skill).filter(Skill.id == skill_id).first()
+    if not skill:
+        raise HTTPException(status_code=404, detail="Skill 不存在")
+
+    if skill.scope == "project":
+        workspace = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        try:
+            svc_delete_skill_file(workspace=workspace, name=skill.name)
+        except Exception as e:
+            logger.warning(f"删除项目级 skill 文件失败: {e}")
+
+    db.delete(skill)
+    db.commit()
+    return {"success": True, "message": "Skill 已删除"}
+
+
+@router.get("/search", response_model=list[SkillResponse])
+async def search_skills(
+    q: str = Query(..., description="搜索关键词"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """关键词搜索 Skill（在 name、description、keywords 中搜索）"""
+    from sqlalchemy import or_
+
+    search_pattern = f"%{q}%"
+    skills = db.query(Skill).filter(
+        or_(
+            Skill.name.ilike(search_pattern),
+            Skill.description.ilike(search_pattern),
+            Skill.keywords.contains(q),
+        )
+    ).order_by(Skill.id.desc()).all()
+    return skills
 

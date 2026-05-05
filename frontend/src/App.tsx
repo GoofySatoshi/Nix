@@ -3,12 +3,12 @@ import { Routes, Route, useNavigate, useLocation, Navigate, NavLink } from 'reac
 import './styles/globals.css';
 import './App.css';
 import AgentDashboard from './components/AgentDashboard';
-import TaskManager from './components/TaskManager';
 import ChatPanel from './components/ChatPanel';
 import AIToolbox from './components/AIToolbox';
 import SkillsManager from './components/SkillsManager';
 import SettingsPanel from './components/SettingsPanel';
 import AuthComponent from './components/AuthComponent';
+import { ChatProvider } from './context/ChatContext';
 import { isAuthenticated as checkAuth, clearAuthToken, toolboxApi } from './services/api';
 
 function App() {
@@ -135,7 +135,6 @@ function App() {
   const pageTitle: Record<string, string> = {
     '/chat': 'AI 对话',
     '/agents': '智能体管理',
-    '/tasks': '任务管理',
     '/toolbox': 'AI 工具箱',
     '/skills': 'Skills 管理',
     '/settings': '系统设置',
@@ -221,17 +220,6 @@ function App() {
                   </svg>
                 </span>
                 <span>智能体管理</span>
-              </NavLink>
-            </li>
-            <li className="nav-item">
-              <NavLink to="/tasks" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-                <span className="nav-icon">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M9 11l3 3L22 4" />
-                    <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" />
-                  </svg>
-                </span>
-                <span>任务管理</span>
               </NavLink>
             </li>
             <li className="nav-item">
@@ -328,16 +316,17 @@ function App() {
           </div>
         </header>
         <main className="content">
-          <Routes>
-            <Route path="/" element={<Navigate to="/chat" replace />} />
-            <Route path="/chat" element={<ChatPanel />} />
-            <Route path="/agents" element={<AgentDashboard />} />
-            <Route path="/tasks" element={<TaskManager />} />
-            <Route path="/toolbox" element={<AIToolbox />} />
-            <Route path="/skills" element={<SkillsManager />} />
-            <Route path="/settings" element={<SettingsPanel />} />
-            <Route path="/login" element={<Navigate to="/chat" replace />} />
-          </Routes>
+          <ChatProvider>
+            <Routes>
+              <Route path="/" element={<Navigate to="/chat" replace />} />
+              <Route path="/chat" element={<ChatPanel />} />
+              <Route path="/agents" element={<AgentDashboard />} />
+              <Route path="/toolbox" element={<AIToolbox />} />
+              <Route path="/skills" element={<SkillsManager />} />
+              <Route path="/settings" element={<SettingsPanel />} />
+              <Route path="/login" element={<Navigate to="/chat" replace />} />
+            </Routes>
+          </ChatProvider>
         </main>
       </div>
     </>) : (

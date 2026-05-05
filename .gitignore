@@ -15,6 +15,9 @@ backend/data/db.sqlite
 backend/.pytest_cache/
 backend/.coverage
 
+# Logs
+backend/logs/
+
 # IDE & OS
 .vscode/
 .idea/

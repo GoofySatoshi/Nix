@@ -15,9 +15,6 @@ export const API_ENDPOINTS = {
   START_AGENT: (id: number) => `/api/agents/${id}/start`,
   STOP_AGENT: (id: number) => `/api/agents/${id}/stop`,
   
-  // 任务相关接口
-  TASKS: '/api/tasks',
-  
   // 设置相关接口
   SETTINGS: '/api/settings',
 

@@ -17,6 +17,7 @@ interface Agent {
 const AgentDashboard: React.FC = () => {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [agentTypes, setAgentTypes] = useState<string[]>([]);
   const [typesLoading, setTypesLoading] = useState(true);
 
@@ -79,10 +80,12 @@ const AgentDashboard: React.FC = () => {
     // 模拟获取智能体列表
     const fetchAgents = async () => {
       try {
+        setError(null);
         const data = await agentApi.getAgents();
         setAgents(data);
       } catch (error) {
         console.error('Error fetching agents:', error);
+        setError(error instanceof Error ? error.message : '加载智能体列表失败');
         // 模拟数据
         setAgents([
           {
@@ -505,6 +508,19 @@ const AgentDashboard: React.FC = () => {
           <span>添加智能体</span>
         </button>
       </div>
+
+      {error && (
+        <div className="card" style={{
+          padding: '16px',
+          marginBottom: '16px',
+          background: 'rgba(239,68,68,0.1)',
+          border: '1px solid rgba(239,68,68,0.3)',
+          color: '#ef4444',
+          borderRadius: 'var(--radius-card)'
+        }}>
+          <strong>加载失败：</strong>{error}
+        </div>
+      )}
 
       <div className="agent-list">
         {agents.map((agent) => (

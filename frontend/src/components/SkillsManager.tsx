@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { skillsApi } from '../services/api';
+import { skillsApi, memoryApi, agentApi } from '../services/api';
 
 interface TreeNode {
   name: string;
@@ -21,6 +21,29 @@ const SkillsManager: React.FC = () => {
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{ path: string; type: 'file' | 'directory' } | null>(null);
 
+  // 记忆管理 State
+  const [activeTab, setActiveTab] = useState<'skills' | 'memories'>('skills');
+  const [memorySubTab, setMemorySubTab] = useState<'project' | 'agent'>('project');
+  const [agents, setAgents] = useState<any[]>([]);
+  const [selectedAgent, setSelectedAgent] = useState<string>('');
+  const [memories, setMemories] = useState<Array<{ category: string; content: string }>>([]);
+  const [memoryLastUpdated, setMemoryLastUpdated] = useState<string | null>(null);
+  const [categories, setCategories] = useState<string[]>([]);
+  const [projectMemories, setProjectMemories] = useState<Array<{ category: string; content: string }>>([]);
+  const [projectCategories, setProjectCategories] = useState<string[]>([]);
+  const [projectMemoryLastUpdated, setProjectMemoryLastUpdated] = useState<string | null>(null);
+  const [projectRawContent, setProjectRawContent] = useState<string>('');
+  const [showAddMemory, setShowAddMemory] = useState(false);
+  const [newMemoryCategory, setNewMemoryCategory] = useState('');
+  const [newMemoryContent, setNewMemoryContent] = useState('');
+  const [isRefining, setIsRefining] = useState(false);
+  const [memoryMessage, setMemoryMessage] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [showRawContent, setShowRawContent] = useState(false);
+  const [rawContent, setRawContent] = useState<string>('');
+  const [editingMemory, setEditingMemory] = useState<{category: string; content: string} | null>(null);
+  const [editMemoryContent, setEditMemoryContent] = useState('');
+
   // 新建文件表单
   const [newFilePath, setNewFilePath] = useState('');
   const [newFileContent, setNewFileContent] = useState('');
@@ -35,7 +58,7 @@ const SkillsManager: React.FC = () => {
     setLoading(true);
     try {
       const data = await skillsApi.getTree();
-      setTree(data);
+      setTree(data.tree || []);
     } catch (err: any) {
       showMsg('error', err.message || '加载目录树失败');
     } finally {
@@ -49,9 +72,9 @@ const SkillsManager: React.FC = () => {
 
   const loadFile = async (path: string) => {
     try {
-      const content = await skillsApi.getFile(path);
-      setFileContent(content);
-      setEditContent(content);
+      const data = await skillsApi.getFile(path);
+      setFileContent(data.content);
+      setEditContent(data.content);
       setSelectedFile(path);
       setIsEditing(false);
     } catch (err: any) {
@@ -146,6 +169,159 @@ const SkillsManager: React.FC = () => {
       expandAll(tree);
     }
   }, [tree]);
+
+  // 记忆管理加载与操作
+  useEffect(() => {
+    if (activeTab === 'memories') {
+      loadCategories();
+      if (memorySubTab === 'agent') {
+        loadAgents();
+      } else {
+        loadProjectMemories();
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, memorySubTab]);
+
+  useEffect(() => {
+    if (selectedAgent && memorySubTab === 'agent') {
+      loadMemories(selectedAgent);
+    }
+  }, [selectedAgent, memorySubTab]);
+
+  const loadAgents = async () => {
+    try {
+      const data = await agentApi.getAgents();
+      setAgents(data);
+      if (data.length > 0 && !selectedAgent) {
+        setSelectedAgent(data[0].name);
+      }
+    } catch (e) { console.error(e); }
+  };
+
+  const loadCategories = async () => {
+    try {
+      const data = await memoryApi.getCategories();
+      setCategories(data.categories);
+      setProjectCategories(data.project_categories);
+      if (memorySubTab === 'project' && data.project_categories.length > 0) {
+        setNewMemoryCategory(data.project_categories[0]);
+      } else if (memorySubTab === 'agent' && data.categories.length > 0) {
+        setNewMemoryCategory(data.categories[0]);
+      }
+    } catch (e) { console.error(e); }
+  };
+
+  const loadMemories = async (agentName: string) => {
+    try {
+      const data = await memoryApi.getMemories(agentName);
+      setMemories(data.memories);
+      setMemoryLastUpdated(data.last_updated);
+      setRawContent(data.raw_content || '');
+    } catch (e) { console.error(e); }
+  };
+
+  const loadProjectMemories = async () => {
+    try {
+      const data = await memoryApi.getProjectMemories();
+      setProjectMemories(data.memories);
+      setProjectMemoryLastUpdated(data.last_updated);
+      setProjectRawContent(data.raw_content || '');
+    } catch (e) { console.error(e); }
+  };
+
+  const handleAddMemory = async () => {
+    const isProject = memorySubTab === 'project';
+    const targetAgent = isProject ? 'project' : selectedAgent;
+    if (!targetAgent || !newMemoryContent.trim()) return;
+    try {
+      const res = await memoryApi.addMemory(targetAgent, {
+        category: newMemoryCategory,
+        content: newMemoryContent.trim(),
+        ...(isProject ? { workspace: '' } : {}),
+      });
+      if (res.success) {
+        setShowAddMemory(false);
+        setNewMemoryContent('');
+        if (isProject) {
+          loadProjectMemories();
+        } else {
+          loadMemories(selectedAgent);
+        }
+        setMemoryMessage('记忆添加成功');
+      } else {
+        setMemoryMessage(res.message);
+      }
+    } catch (e: any) { setMemoryMessage('添加失败: ' + e.message); }
+    setTimeout(() => setMemoryMessage(''), 3000);
+  };
+
+  const handleDeleteMemory = async (category: string, content: string) => {
+    const isProject = memorySubTab === 'project';
+    const targetAgent = isProject ? 'project' : selectedAgent;
+    if (!targetAgent) return;
+    try {
+      await memoryApi.deleteMemory(targetAgent, {
+        category,
+        content,
+        ...(isProject ? { workspace: '' } : {}),
+      });
+      if (isProject) {
+        loadProjectMemories();
+      } else {
+        loadMemories(selectedAgent);
+      }
+      setMemoryMessage('记忆已删除');
+    } catch (e: any) { setMemoryMessage('删除失败'); }
+    setTimeout(() => setMemoryMessage(''), 3000);
+  };
+
+  const handleRefineMemories = async () => {
+    if (!selectedAgent) return;
+    setIsRefining(true);
+    setMemoryMessage('正在使用 AI 整理记忆...');
+    try {
+      const res = await memoryApi.refineMemories(selectedAgent);
+      if (res.success) {
+        setMemories(res.refined_memories);
+        setRawContent(res.raw_content || '');
+        setMemoryMessage(res.message);
+      } else {
+        setMemoryMessage(res.message);
+      }
+    } catch (e: any) {
+      setMemoryMessage('整理失败: ' + (e.message || '请检查 API Key 配置'));
+    }
+    setIsRefining(false);
+    setTimeout(() => setMemoryMessage(''), 5000);
+  };
+
+  const handleUpdateMemory = async () => {
+    const isProject = memorySubTab === 'project';
+    const targetAgent = isProject ? 'project' : selectedAgent;
+    if (!targetAgent || !editingMemory || !editMemoryContent.trim()) return;
+    try {
+      const res = await memoryApi.updateMemory(targetAgent, {
+        category: editingMemory.category,
+        old_content: editingMemory.content,
+        new_content: editMemoryContent.trim(),
+        ...(isProject ? { workspace: '' } : {}),
+      });
+      if (res.success) {
+        setEditingMemory(null);
+        setEditMemoryContent('');
+        if (isProject) {
+          loadProjectMemories();
+        } else {
+          loadMemories(selectedAgent);
+        }
+        setMemoryMessage('记忆更新成功');
+      } else {
+        setMemoryMessage(res.message);
+      }
+    } catch (e: any) { setMemoryMessage('更新失败: ' + e.message); }
+    setTimeout(() => setMemoryMessage(''), 3000);
+  };
 
   const renderTree = (nodes: TreeNode[]) => {
     return nodes.map(node => (
@@ -265,6 +441,24 @@ const SkillsManager: React.FC = () => {
         </div>
       </div>
 
+      {/* Tab 切换 */}
+      <div className="skills-tabs">
+        <button
+          className={`skills-tab ${activeTab === 'skills' ? 'active' : ''}`}
+          onClick={() => setActiveTab('skills')}
+        >
+          📄 Skill 文件管理
+        </button>
+        <button
+          className={`skills-tab ${activeTab === 'memories' ? 'active' : ''}`}
+          onClick={() => setActiveTab('memories')}
+        >
+          🧠 智能体记忆管理
+        </button>
+      </div>
+
+      {activeTab === 'skills' && (
+        <>
       {/* 消息提示 */}
       {message && (
         <div className={`settings-message ${message.type}`} style={{ marginBottom: '16px' }}>
@@ -415,6 +609,395 @@ const SkillsManager: React.FC = () => {
               <button className="btn btn-secondary" onClick={() => setDeleteConfirm(null)}>取消</button>
             </div>
           </div>
+        </div>
+      )}
+        </>
+      )}
+
+      {activeTab === 'memories' && (
+        <div className="memory-manager">
+          {/* 消息提示 */}
+          {memoryMessage && (
+            <div className={`memory-toast ${memoryMessage.includes('失败') || memoryMessage.includes('错误') ? 'error' : 'success'}`}>
+              {memoryMessage}
+            </div>
+          )}
+
+          {/* 子视图切换 */}
+          <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+            <button
+              onClick={() => { setMemorySubTab('project'); setSelectedCategory('all'); }}
+              style={{
+                padding: '6px 16px',
+                borderRadius: '20px',
+                border: 'none',
+                background: memorySubTab === 'project' ? 'rgba(99, 102, 241, 0.3)' : 'rgba(255,255,255,0.05)',
+                color: memorySubTab === 'project' ? '#fff' : 'var(--text-secondary)',
+                cursor: 'pointer',
+                fontSize: '14px',
+                transition: 'all 0.2s',
+              }}
+            >
+              📋 项目记忆
+            </button>
+            <button
+              onClick={() => { setMemorySubTab('agent'); setSelectedCategory('all'); }}
+              style={{
+                padding: '6px 16px',
+                borderRadius: '20px',
+                border: 'none',
+                background: memorySubTab === 'agent' ? 'rgba(99, 102, 241, 0.3)' : 'rgba(255,255,255,0.05)',
+                color: memorySubTab === 'agent' ? '#fff' : 'var(--text-secondary)',
+                cursor: 'pointer',
+                fontSize: '14px',
+                transition: 'all 0.2s',
+              }}
+            >
+              🤖 智能体记忆
+            </button>
+          </div>
+
+          {/* 顶部区域 */}
+          <div className="memory-header">
+            <h3 className="memory-title">
+              {memorySubTab === 'project' ? '📋 项目记忆' : '🧠 智能体记忆'}
+            </h3>
+            {memorySubTab === 'project' ? (
+              <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span>📂</span>
+                <span>存储位置：.nix/project-memory.md</span>
+              </div>
+            ) : (
+              <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span>📂</span>
+                <span>存储位置：skills/{selectedAgent}-SOUL.md</span>
+              </div>
+            )}
+            <div className="memory-header-row">
+              {memorySubTab === 'agent' && (
+                <div className="memory-agent-select-wrapper">
+                  <select
+                    className="memory-agent-select-input"
+                    value={selectedAgent}
+                    onChange={e => setSelectedAgent(e.target.value)}
+                  >
+                    {agents.map(a => (
+                      <option key={a.id} value={a.name}>{a.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <div className="memory-stats-bar">
+                <span className="memory-stat-item">
+                  <span className="memory-stat-icon">📊</span>
+                  {(memorySubTab === 'project' ? projectMemories : memories).length}条记忆
+                </span>
+                {(memorySubTab === 'project' ? projectMemoryLastUpdated : memoryLastUpdated) && (
+                  <span className="memory-stat-item">
+                    <span className="memory-stat-icon">⏰</span>
+                    最后更新: {(() => {
+                      const ts = memorySubTab === 'project' ? projectMemoryLastUpdated : memoryLastUpdated;
+                      const date = new Date(ts!);
+                      const now = new Date();
+                      const diffMs = now.getTime() - date.getTime();
+                      const diffMins = Math.floor(diffMs / 60000);
+                      const diffHours = Math.floor(diffMins / 60);
+                      const diffDays = Math.floor(diffHours / 24);
+                      if (diffMins < 1) return '刚刚';
+                      if (diffMins < 60) return `${diffMins}分钟前`;
+                      if (diffHours < 24) return `${diffHours}小时前`;
+                      if (diffDays < 30) return `${diffDays}天前`;
+                      return date.toLocaleDateString();
+                    })()}
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="memory-header-actions">
+              <button className="memory-btn memory-btn-add" onClick={() => setShowAddMemory(true)}>
+                <span>+</span> 添加
+              </button>
+              {memorySubTab === 'agent' && (
+                <button
+                  className={`memory-btn memory-btn-refine ${isRefining ? 'refining' : ''}`}
+                  onClick={handleRefineMemories}
+                  disabled={isRefining || memories.length === 0}
+                >
+                  <span className={`refine-icon ${isRefining ? 'spinning' : ''}`}>✨</span>
+                  {isRefining ? '正在使用 AI 提炼记忆...' : 'AI整理记忆'}
+                </button>
+              )}
+              <button
+                className="memory-btn memory-btn-raw"
+                onClick={() => setShowRawContent(v => !v)}
+              >
+                <span>📋</span> {showRawContent ? '收起源文件' : '查看源文件'}
+              </button>
+            </div>
+          </div>
+
+          {/* 源文件折叠区域 */}
+          {showRawContent && (
+            <div className="memory-raw-panel">
+              <div className="memory-raw-header">
+                <span>{memorySubTab === 'project' ? 'project-memory.md 原始内容' : 'SOUL.md 原始内容'}</span>
+                <button className="memory-raw-close" onClick={() => setShowRawContent(false)}>✕</button>
+              </div>
+              <div className="memory-raw-body">
+                {(memorySubTab === 'project' ? projectRawContent : rawContent) ? (
+                  <pre className="memory-raw-pre">{memorySubTab === 'project' ? projectRawContent : rawContent}</pre>
+                ) : (
+                  <div className="memory-raw-empty">暂无原始内容</div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* 主内容区 - 左右布局 */}
+          <div className="memory-main">
+            {/* 左侧分类导航 */}
+            <div className="memory-sidebar">
+              {(() => {
+                const categoryConfig: Record<string, { icon: string; color: string }> = {
+                  '用户偏好': { icon: '👤', color: '#8b5cf6' },
+                  '项目规则': { icon: '📐', color: '#3b82f6' },
+                  '项目规范': { icon: '📏', color: '#10b981' },
+                  '工作经验': { icon: '💡', color: '#f59e0b' },
+                  '工具使用经验': { icon: '🔧', color: '#ec4899' },
+                  '错误教训': { icon: '⚠️', color: '#ef4444' },
+                };
+                const currentMemories = memorySubTab === 'project' ? projectMemories : memories;
+                const currentCategories = memorySubTab === 'project' ? projectCategories : categories;
+                const counts = currentMemories.reduce((acc, m) => {
+                  acc[m.category] = (acc[m.category] || 0) + 1;
+                  return acc;
+                }, {} as Record<string, number>);
+                const orderedCategories = currentCategories.length > 0 ? currentCategories : (
+                  memorySubTab === 'project'
+                    ? ['项目规则', '项目规范']
+                    : ['用户偏好', '工作经验', '工具使用经验', '错误教训']
+                );
+                return (
+                  <>
+                    {orderedCategories.map(cat => {
+                      const cfg = categoryConfig[cat] || { icon: '📄', color: '#8b5cf6' };
+                      const count = counts[cat] || 0;
+                      const isActive = selectedCategory === cat;
+                      return (
+                        <button
+                          key={cat}
+                          className={`memory-category-item ${isActive ? 'active' : ''}`}
+                          onClick={() => setSelectedCategory(cat)}
+                          style={{ '--cat-color': cfg.color } as React.CSSProperties}
+                        >
+                          <span className="memory-category-icon">{cfg.icon}</span>
+                          <span className="memory-category-name">{cat}</span>
+                          {count > 0 && (
+                            <span className="memory-category-badge">{count}</span>
+                          )}
+                        </button>
+                      );
+                    })}
+                    <button
+                      className={`memory-category-item all ${selectedCategory === 'all' ? 'active' : ''}`}
+                      onClick={() => setSelectedCategory('all')}
+                    >
+                      <span className="memory-category-icon">🗂️</span>
+                      <span className="memory-category-name">全部</span>
+                      <span className="memory-category-badge">{currentMemories.length}</span>
+                    </button>
+                  </>
+                );
+              })()}
+            </div>
+
+            {/* 右侧记忆列表 */}
+            <div className="memory-content">
+              {(() => {
+                const categoryConfig: Record<string, { icon: string; color: string }> = {
+                  '用户偏好': { icon: '👤', color: '#8b5cf6' },
+                  '项目规则': { icon: '📐', color: '#3b82f6' },
+                  '项目规范': { icon: '📏', color: '#10b981' },
+                  '工作经验': { icon: '💡', color: '#f59e0b' },
+                  '工具使用经验': { icon: '🔧', color: '#ec4899' },
+                  '错误教训': { icon: '⚠️', color: '#ef4444' },
+                };
+                const currentMemories = memorySubTab === 'project' ? projectMemories : memories;
+                const filtered = selectedCategory === 'all'
+                  ? currentMemories
+                  : currentMemories.filter(m => m.category === selectedCategory);
+
+                if (filtered.length === 0) {
+                  return (
+                    <div className="memory-empty-state">
+                      <div className="memory-empty-icon">🧠</div>
+                      <div className="memory-empty-title">
+                        {selectedCategory === 'all'
+                          ? (memorySubTab === 'project' ? '该项目还没有记忆' : '该智能体还没有记忆')
+                          : '该分类下暂无记忆'}
+                      </div>
+                      <div className="memory-empty-desc">
+                        点击"添加"按钮开始记录新的记忆
+                      </div>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="memory-card-list">
+                    {filtered.map((item, idx) => {
+                      const cfg = categoryConfig[item.category] || { icon: '📄', color: '#8b5cf6' };
+                      return (
+                        <div
+                          key={idx}
+                          className="memory-card"
+                          style={{ '--card-color': cfg.color } as React.CSSProperties}
+                        >
+                          <div className="memory-card-border" />
+                          <div className="memory-card-body">
+                            <div className="memory-card-meta">
+                              <span className="memory-card-category" style={{ color: cfg.color }}>
+                                {cfg.icon} {item.category}
+                              </span>
+                              <div className="memory-card-actions">
+                                <button
+                                  className="memory-card-action-btn"
+                                  onClick={() => {
+                                    setEditingMemory(item);
+                                    setEditMemoryContent(item.content);
+                                    setNewMemoryCategory(item.category);
+                                  }}
+                                  title="编辑"
+                                >
+                                  ✏️
+                                </button>
+                                <button
+                                  className="memory-card-action-btn delete"
+                                  onClick={() => handleDeleteMemory(item.category, item.content)}
+                                  title="删除"
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            </div>
+                            <div className="memory-card-text">{item.content}</div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+
+          {/* 添加记忆模态框 */}
+          {showAddMemory && (
+            <div className="modal-overlay" onClick={() => setShowAddMemory(false)}>
+              <div className="memory-modal" onClick={e => e.stopPropagation()}>
+                <h3>添加记忆</h3>
+                <div className="memory-modal-body">
+                  <div className="memory-form-group">
+                    <label>分类</label>
+                    <div className="memory-category-selector">
+                      {(memorySubTab === 'project' ? projectCategories : categories).map(c => {
+                        const categoryConfig: Record<string, { color: string }> = {
+                          '用户偏好': { color: '#8b5cf6' },
+                          '项目规则': { color: '#3b82f6' },
+                          '项目规范': { color: '#10b981' },
+                          '工作经验': { color: '#f59e0b' },
+                          '工具使用经验': { color: '#ec4899' },
+                          '错误教训': { color: '#ef4444' },
+                        };
+                        const cfg = categoryConfig[c] || { color: '#8b5cf6' };
+                        const isSelected = newMemoryCategory === c;
+                        return (
+                          <button
+                            key={c}
+                            className={`memory-category-chip ${isSelected ? 'active' : ''}`}
+                            onClick={() => setNewMemoryCategory(c)}
+                            style={{
+                              '--chip-color': cfg.color,
+                              borderColor: isSelected ? cfg.color : undefined,
+                              background: isSelected ? `${cfg.color}20` : undefined,
+                              color: isSelected ? cfg.color : undefined,
+                            } as React.CSSProperties}
+                          >
+                            {c}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div className="memory-form-group">
+                    <label>内容</label>
+                    <textarea
+                      className="memory-textarea"
+                      value={newMemoryContent}
+                      onChange={e => setNewMemoryContent(e.target.value)}
+                      placeholder="输入记忆内容..."
+                      rows={5}
+                    />
+                  </div>
+                </div>
+                <div className="memory-modal-actions">
+                  <button
+                    className="memory-btn memory-btn-ghost"
+                    onClick={() => { setShowAddMemory(false); setNewMemoryContent(''); }}
+                  >
+                    取消
+                  </button>
+                  <button
+                    className="memory-btn memory-btn-primary"
+                    onClick={handleAddMemory}
+                    disabled={!newMemoryContent.trim()}
+                  >
+                    添加
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 编辑记忆模态框 */}
+          {editingMemory && (
+            <div className="modal-overlay" onClick={() => setEditingMemory(null)}>
+              <div className="memory-modal" onClick={e => e.stopPropagation()}>
+                <h3>编辑记忆</h3>
+                <div className="memory-modal-body">
+                  <div className="memory-form-group">
+                    <label>分类</label>
+                    <div className="memory-form-value">{editingMemory.category}</div>
+                  </div>
+                  <div className="memory-form-group">
+                    <label>内容</label>
+                    <textarea
+                      className="memory-textarea"
+                      value={editMemoryContent}
+                      onChange={e => setEditMemoryContent(e.target.value)}
+                      placeholder="输入记忆内容..."
+                      rows={5}
+                    />
+                  </div>
+                </div>
+                <div className="memory-modal-actions">
+                  <button
+                    className="memory-btn memory-btn-ghost"
+                    onClick={() => { setEditingMemory(null); setEditMemoryContent(''); }}
+                  >
+                    取消
+                  </button>
+                  <button
+                    className="memory-btn memory-btn-primary"
+                    onClick={handleUpdateMemory}
+                    disabled={!editMemoryContent.trim()}
+                  >
+                    保存
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

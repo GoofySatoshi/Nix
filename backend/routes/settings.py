@@ -27,7 +27,9 @@ def list_configs(
             "api_key": r.api_key,
             "api_base_url": r.api_base_url or "",
             "model_list_url": r.model_list_url or "",
+            "intent_model": r.intent_model or "",
             "is_default": r.is_default,
+            "max_acceptance_rounds": getattr(r, 'max_acceptance_rounds', 3) or 3,
             "created_at": r.created_at, "updated_at": r.updated_at,
         })
     return result

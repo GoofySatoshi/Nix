@@ -20,6 +20,12 @@
   /* 字体 */
   --font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", sans-serif;
 
+  /* 渐变 */
+  --gradient-primary: linear-gradient(135deg, var(--color-primary-1), var(--color-primary-2));
+
+  /* 阴影 */
+  --shadow-glow: 0 4px 15px rgba(139, 92, 246, 0.3);
+
   /* 过渡 */
   --transition-default: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -160,6 +166,19 @@ body {
   transform: translateY(-1px);
 }
 
+.btn-abort {
+  background: rgba(239, 68, 68, 0.3) !important;
+  border: 1px solid rgba(239, 68, 68, 0.5) !important;
+  color: #fca5a5 !important;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-abort:hover {
+  background: rgba(239, 68, 68, 0.5) !important;
+  color: #fff !important;
+}
+
 .btn-sm {
   padding: 6px 14px;
   font-size: 0.8rem;
@@ -205,6 +224,13 @@ body {
   font-weight: 500;
   margin-bottom: 8px;
   color: var(--text-secondary);
+}
+
+.form-hint {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-top: 6px;
 }
 
 /* ===== 卡片 ===== */
@@ -347,4 +373,401 @@ body {
   .card {
     padding: 16px;
   }
+}
+
+/* === 执行计划清单样式 === */
+.task-checklist {
+  background: var(--glass-bg, rgba(255, 255, 255, 0.05));
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.1));
+  border-radius: 14px;
+  padding: 16px 20px;
+  margin: 12px 0;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+  transition: var(--transition-default);
+}
+
+.task-checklist:hover {
+  border-color: rgba(139, 92, 246, 0.2);
+  box-shadow: 0 4px 20px rgba(139, 92, 246, 0.08);
+}
+
+.task-checklist-history {
+  opacity: 1;
+}
+
+.checklist-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
+}
+
+.checklist-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary, #f8fafc);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.checklist-progress {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-primary-2, #3B82F6);
+  background: rgba(59, 130, 246, 0.12);
+  padding: 3px 10px;
+  border-radius: 12px;
+  letter-spacing: 0.3px;
+}
+
+.checklist-items {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.checklist-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  transition: all 0.25s ease;
+  position: relative;
+}
+
+.checklist-item:hover {
+  background: var(--glass-bg-subtle, rgba(255, 255, 255, 0.03));
+}
+
+.checklist-order {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted, #64748b);
+  background: var(--glass-bg-strong, rgba(255, 255, 255, 0.1));
+  min-width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.checklist-status-icon {
+  font-size: 16px;
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.checklist-content {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+}
+
+.checklist-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary, #f8fafc);
+  line-height: 1.4;
+}
+
+.checklist-desc {
+  font-size: 12px;
+  color: var(--text-muted, #64748b);
+  line-height: 1.5;
+  margin-top: 2px;
+}
+
+.checklist-completed .checklist-name {
+  color: var(--text-muted, #64748b);
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+
+.checklist-completed .checklist-order {
+  background: rgba(16, 185, 129, 0.15);
+  color: var(--color-success, #10b981);
+}
+
+.checklist-running {
+  background: rgba(59, 130, 246, 0.06);
+  border: 1px solid rgba(59, 130, 246, 0.15);
+}
+
+.checklist-running .checklist-name {
+  color: #60a5fa;
+  font-weight: 600;
+}
+
+.checklist-running .checklist-order {
+  background: rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+}
+
+.checklist-running .checklist-status-icon {
+  animation: spin 1.5s linear infinite;
+}
+
+.checklist-failed .checklist-name {
+  color: rgba(239, 68, 68, 0.9);
+}
+
+.checklist-failed .checklist-order {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--color-error, #ef4444);
+}
+
+.checklist-pending .checklist-order {
+  opacity: 0.6;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.spinner-icon {
+  animation: spin 1s linear infinite;
+  color: var(--color-primary-1, #8B5CF6);
+  display: inline-block;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+
+@media (max-width: 768px) {
+  .task-checklist {
+    padding: 12px 14px;
+    border-radius: 12px;
+  }
+
+  .checklist-item {
+    padding: 8px 8px;
+    gap: 10px;
+  }
+
+  .checklist-name {
+    font-size: 12px;
+  }
+
+  .checklist-desc {
+    font-size: 11px;
+  }
+}
+
+/* === 验收标准样式 === */
+.acceptance-criteria-panel {
+  background: var(--glass-bg, rgba(255, 255, 255, 0.05));
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.1));
+  border-radius: 12px;
+  padding: 16px;
+  margin: 12px 0;
+}
+
+.acceptance-header {
+  margin-bottom: 12px;
+}
+
+.acceptance-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary, #f8fafc);
+  display: block;
+  margin-bottom: 4px;
+}
+
+.acceptance-subtitle {
+  font-size: 12px;
+  color: var(--text-secondary, #cbd5e1);
+}
+
+.acceptance-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.acceptance-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.acceptance-id {
+  font-size: 13px;
+  color: var(--text-secondary, #cbd5e1);
+  width: 20px;
+  flex-shrink: 0;
+}
+
+.acceptance-input {
+  flex: 1;
+  background: var(--glass-bg-strong, rgba(255, 255, 255, 0.1));
+  border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.1));
+  border-radius: 6px;
+  padding: 8px 12px;
+  color: var(--text-primary, #f8fafc);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.acceptance-input:focus {
+  border-color: rgba(59, 130, 246, 0.5);
+}
+
+.acceptance-remove-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted, #64748b);
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.acceptance-remove-btn:hover {
+  color: rgba(239, 68, 68, 0.8);
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.acceptance-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.acceptance-add-btn {
+  background: none;
+  border: 1px dashed var(--text-muted, #64748b);
+  color: var(--text-muted, #64748b);
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.2s;
+}
+
+.acceptance-add-btn:hover {
+  border-color: rgba(59, 130, 246, 0.5);
+  color: rgba(59, 130, 246, 0.8);
+}
+
+.acceptance-confirm-btn {
+  background: linear-gradient(135deg, #3b82f6, #2563eb);
+  border: none;
+  color: white;
+  padding: 8px 20px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.acceptance-confirm-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+}
+
+/* === 验收结果样式 === */
+.acceptance-results {
+  margin: 8px 0;
+}
+
+.acceptance-report {
+  background: var(--glass-bg, rgba(255, 255, 255, 0.05));
+  border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.1));
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 8px;
+}
+
+.acceptance-report.passed {
+  border-color: rgba(34, 197, 94, 0.3);
+}
+
+.acceptance-report.failed {
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+.report-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
+}
+
+.report-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary, #f8fafc);
+}
+
+.report-status {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+.status-passed {
+  background: rgba(34, 197, 94, 0.15);
+  color: rgba(34, 197, 94, 0.9);
+}
+
+.status-failed {
+  background: rgba(239, 68, 68, 0.15);
+  color: rgba(239, 68, 68, 0.9);
+}
+
+.report-items {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.report-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.item-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.item-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.item-reason {
+  font-size: 12px;
+  color: var(--text-secondary, #cbd5e1);
+}
+
+.item-fix {
+  font-size: 11px;
+  color: rgba(251, 191, 36, 0.8);
+  font-style: italic;
 }

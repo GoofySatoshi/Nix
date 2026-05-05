@@ -2,12 +2,16 @@ from sqlalchemy.orm import Session
 from models import Agent
 from schemas.agent import AgentCreate, AgentUpdate
 from agents.factory import AgentFactory
+import logging
+
+logger = logging.getLogger(__name__)
 
 # 智能体实例缓存
 agent_instances = {}
 
 def create_agent(db: Session, agent: AgentCreate) -> Agent:
     """创建智能体"""
+    logger.info(f"[AgentManager.create_agent] 入参: name={agent.name}, type={agent.type}, config_id={agent.config_id}")
     db_agent = Agent(
         name=agent.name,
         type=agent.type,
@@ -20,18 +24,26 @@ def create_agent(db: Session, agent: AgentCreate) -> Agent:
     db.add(db_agent)
     db.commit()
     db.refresh(db_agent)
+    logger.info(f"[AgentManager.create_agent] 返回: agent_id={db_agent.id}")
     return db_agent
 
 def get_agent(db: Session, agent_id: int) -> Agent:
     """获取智能体"""
-    return db.query(Agent).filter(Agent.id == agent_id).first()
+    logger.info(f"[AgentManager.get_agent] 入参: agent_id={agent_id}")
+    result = db.query(Agent).filter(Agent.id == agent_id).first()
+    logger.info(f"[AgentManager.get_agent] 返回: {'found' if result else 'None'}")
+    return result
 
 def get_agents(db: Session) -> list[Agent]:
     """获取所有智能体"""
-    return db.query(Agent).all()
+    logger.info("[AgentManager.get_agents] 入参: 无")
+    result = db.query(Agent).all()
+    logger.info(f"[AgentManager.get_agents] 返回: {len(result)} 个智能体")
+    return result
 
 def update_agent(db: Session, agent_id: int, agent: AgentUpdate) -> Agent:
     """更新智能体"""
+    logger.info(f"[AgentManager.update_agent] 入参: agent_id={agent_id}, name={agent.name}, type={agent.type}")
     db_agent = get_agent(db, agent_id)
     if not db_agent:
         return None
@@ -51,10 +63,12 @@ def update_agent(db: Session, agent_id: int, agent: AgentUpdate) -> Agent:
 
     db.commit()
     db.refresh(db_agent)
+    logger.info(f"[AgentManager.update_agent] 返回: agent_id={db_agent.id}")
     return db_agent
 
 def delete_agent(db: Session, agent_id: int) -> bool:
     """删除智能体"""
+    logger.info(f"[AgentManager.delete_agent] 入参: agent_id={agent_id}")
     db_agent = get_agent(db, agent_id)
     if not db_agent:
         return False
@@ -69,10 +83,12 @@ def delete_agent(db: Session, agent_id: int) -> bool:
     
     db.delete(db_agent)
     db.commit()
+    logger.info(f"[AgentManager.delete_agent] 返回: True")
     return True
 
 def start_agent(db: Session, agent_id: int) -> Agent:
     """启动智能体"""
+    logger.info(f"[AgentManager.start_agent] 入参: agent_id={agent_id}")
     db_agent = get_agent(db, agent_id)
     if not db_agent:
         return None
@@ -95,10 +111,12 @@ def start_agent(db: Session, agent_id: int) -> Agent:
     db_agent.status = "running"
     db.commit()
     db.refresh(db_agent)
+    logger.info(f"[AgentManager.start_agent] 返回: agent_id={db_agent.id}, status=running")
     return db_agent
 
 def stop_agent(db: Session, agent_id: int) -> Agent:
     """停止智能体"""
+    logger.info(f"[AgentManager.stop_agent] 入参: agent_id={agent_id}")
     db_agent = get_agent(db, agent_id)
     if not db_agent:
         return None
@@ -115,15 +133,22 @@ def stop_agent(db: Session, agent_id: int) -> Agent:
     db_agent.status = "stopped"
     db.commit()
     db.refresh(db_agent)
+    logger.info(f"[AgentManager.stop_agent] 返回: agent_id={db_agent.id}, status=stopped")
     return db_agent
 
 def get_agent_instance(agent_id: int):
     """获取智能体实例"""
-    return agent_instances.get(agent_id)
+    logger.info(f"[AgentManager.get_agent_instance] 入参: agent_id={agent_id}")
+    result = agent_instances.get(agent_id)
+    logger.info(f"[AgentManager.get_agent_instance] 返回: {'found' if result else 'None'}")
+    return result
 
 def get_agent_types(db: Session) -> list[str]:
     """获取所有唯一的智能体类型"""
+    logger.info("[AgentManager.get_agent_types] 入参: 无")
     # 从数据库中获取所有唯一的智能体类型
     types = db.query(Agent.type).distinct().all()
     # 提取类型值并返回列表
-    return [t[0] for t in types]
+    result = [t[0] for t in types]
+    logger.info(f"[AgentManager.get_agent_types] 返回: {result}")
+    return result
