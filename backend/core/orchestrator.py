@@ -209,23 +209,46 @@ class TaskOrchestrator:
         return assignments
 
     def _find_best_agent(self, subtask: SubTask) -> Optional[str]:
-        """为子任务选择最佳 Agent"""
+        """为子任务选择最佳 Agent（基于能力匹配 + 负载均衡）"""
         candidates = []
+        desc = (subtask.description + " " + subtask.name).lower()
+
+        # 意图关键词 → Agent 能力映射
+        capability_keywords = {
+            "chat": ["对话", "聊天", "问答", "解释", "分析", "review", "审查", "说明"],
+            "developer": ["创建", "写", "代码", "文件", "修改", "删除", "执行", "命令", "开发", "实现", "配置"],
+        }
+
         for aid, agent in self._agents.items():
             if agent.status in (AgentStatus.STOPPED, AgentStatus.ERROR):
                 continue
-            if agent.status == AgentStatus.BUSY:
-                caps = agent.capabilities
-                if len(self._get_agent_active_tasks(aid)) >= caps.max_concurrent:
-                    continue
-            candidates.append(aid)
+
+            caps = agent.capabilities
+            active_tasks = len(self._get_agent_active_tasks(aid))
+
+            # 检查并发限制
+            if active_tasks >= caps.max_concurrent:
+                continue
+
+            # 计算能力匹配分数
+            match_score = 0
+            keywords = capability_keywords.get(caps.name, [])
+            for kw in keywords:
+                if kw in desc:
+                    match_score += 1
+
+            # 如果任务指定了 agent_id，直接匹配
+            if subtask.assigned_agent and subtask.assigned_agent == aid:
+                match_score = 100
+
+            candidates.append((aid, match_score, active_tasks))
 
         if not candidates:
             return None
 
-        # 简单策略：选第一个可用的
-        # TODO: 根据子任务内容匹配 Agent 能力
-        return candidates[0]
+        # 排序：匹配分数降序，负载升序
+        candidates.sort(key=lambda x: (-x[1], x[2]))
+        return candidates[0][0]
 
     def _get_agent_active_tasks(self, agent_id: str) -> list[str]:
         """获取 Agent 当前活跃任务"""

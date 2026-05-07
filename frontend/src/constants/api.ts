@@ -1,5 +1,6 @@
 // API 配置常量
-export const API_BASE_URL = 'http://localhost:8000';
+// 使用相对路径，通过 nginx 反代访问后端
+export const API_BASE_URL = '';
 
 // 认证 token 存储 key
 export const AUTH_TOKEN_KEY = 'auth_token';
