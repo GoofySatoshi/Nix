@@ -8,8 +8,9 @@ import AIToolbox from './components/AIToolbox';
 import SkillsManager from './components/SkillsManager';
 import SettingsPanel from './components/SettingsPanel';
 import AuthComponent from './components/AuthComponent';
+import CoreDashboard from './components/CoreDashboard';
 import { ChatProvider } from './context/ChatContext';
-import { isAuthenticated as checkAuth, clearAuthToken, toolboxApi } from './services/api';
+import { isAuthenticated as checkAuth, clearAuthToken, toolboxApi, workspaceApi } from './services/api';
 
 function App() {
   const [isDarkMode, setIsDarkMode] = useState(false);
@@ -43,14 +44,24 @@ function App() {
     setAuthChecked(true);
   }, []);
 
-  // 检查工作目录设置
+  // 检查工作目录设置（从后端获取）
   useEffect(() => {
-    const savedDir = localStorage.getItem('chat_working_directory');
-    if (savedDir) {
-      setWorkingDirectory(savedDir);
-      setIsWorkspaceSet(true);
+    if (authenticated) {
+      workspaceApi.get().then(info => {
+        if (info.exists && info.is_writable) {
+          setWorkingDirectory(info.path);
+          setIsWorkspaceSet(true);
+        }
+      }).catch(() => {
+        // 后端不可用时回退到 localStorage
+        const savedDir = localStorage.getItem('chat_working_directory');
+        if (savedDir) {
+          setWorkingDirectory(savedDir);
+          setIsWorkspaceSet(true);
+        }
+      });
     }
-  }, []);
+  }, [authenticated]);
 
   // 进入目录选择界面时加载默认目录
   useEffect(() => {
@@ -97,9 +108,14 @@ function App() {
     navigate('/login');
   };
 
-  const handleSetWorkspace = (dir?: string) => {
+  const handleSetWorkspace = async (dir?: string) => {
     const target = dir || workingDirectory;
     if (target.trim()) {
+      try {
+        await workspaceApi.set(target.trim());
+      } catch (e) {
+        console.warn('设置后端工作目录失败，使用本地存储回退');
+      }
       localStorage.setItem('chat_working_directory', target.trim());
       setWorkingDirectory(target.trim());
       setIsWorkspaceSet(true);
@@ -110,13 +126,23 @@ function App() {
     setDirLoading(true);
     setDirError('');
     try {
-      const res = await toolboxApi.browseDirectories(path);
-      setDirectories(res.directories);
+      // 优先使用新的 workspace API
+      const res = await workspaceApi.list(path);
+      setDirectories(res.directories.map(d => ({ name: d.name, path: d.path, type: 'directory' })));
       setCurrentBrowsePath(res.current_path);
       setParentBrowsePath(res.parent_path);
       setWorkingDirectory(res.current_path);
     } catch (e: any) {
-      setDirError(e.message || '加载目录失败');
+      // 回退到旧的 toolbox API
+      try {
+        const res = await toolboxApi.browseDirectories(path);
+        setDirectories(res.directories);
+        setCurrentBrowsePath(res.current_path);
+        setParentBrowsePath(res.parent_path);
+        setWorkingDirectory(res.current_path);
+      } catch (e2: any) {
+        setDirError(e2.message || '加载目录失败');
+      }
     } finally {
       setDirLoading(false);
     }
@@ -139,6 +165,7 @@ function App() {
     '/skills': 'Skills 管理',
     '/settings': '系统设置',
     '/login': '登录',
+    '/core': '核心架构',
   };
 
   const currentTitle = pageTitle[location.pathname] || 'Nix';
@@ -255,6 +282,24 @@ function App() {
                 <span>系统设置</span>
               </NavLink>
             </li>
+            <li className="nav-item">
+              <NavLink to="/core" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+                <span className="nav-icon">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="2" y="2" width="20" height="20" rx="5" />
+                    <circle cx="8" cy="8" r="2" />
+                    <circle cx="16" cy="8" r="2" />
+                    <circle cx="8" cy="16" r="2" />
+                    <circle cx="16" cy="16" r="2" />
+                    <line x1="10" y1="8" x2="14" y2="8" />
+                    <line x1="8" y1="10" x2="8" y2="14" />
+                    <line x1="16" y1="10" x2="16" y2="14" />
+                    <line x1="10" y1="16" x2="14" y2="16" />
+                  </svg>
+                </span>
+                <span>核心架构</span>
+              </NavLink>
+            </li>
           </ul>
         </nav>
         <div style={{
@@ -324,6 +369,7 @@ function App() {
               <Route path="/toolbox" element={<AIToolbox />} />
               <Route path="/skills" element={<SkillsManager />} />
               <Route path="/settings" element={<SettingsPanel />} />
+              <Route path="/core" element={<CoreDashboard />} />
               <Route path="/login" element={<Navigate to="/chat" replace />} />
             </Routes>
           </ChatProvider>

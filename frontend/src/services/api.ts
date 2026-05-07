@@ -428,3 +428,56 @@ export const environmentApi = {
     return request<any>(`/api/environment/summary${params}`);
   },
 };
+
+// ========== 工作目录API（新架构）==========
+export const workspaceApi = {
+  get: () => request<{ path: string; exists: boolean; is_writable: boolean }>('/api/workspace'),
+  set: (path: string) => request<{ path: string; message: string }>('/api/workspace', {
+    method: 'PUT',
+    body: JSON.stringify({ path }),
+  }),
+  list: (path?: string) => {
+    const params = path ? `?path=${encodeURIComponent(path)}` : '';
+    return request<{
+      current_path: string;
+      parent_path: string;
+      directories: { name: string; path: string; readable: boolean }[];
+    }>(`/api/workspace/list${params}`);
+  },
+};
+
+// ========== 核心Agent API（新架构）==========
+export const coreApi = {
+  // 任务编排
+  orchestrate: (taskDescription: string, taskId?: string) =>
+    request<any>('/api/core/orchestrate', {
+      method: 'POST',
+      body: JSON.stringify({ task_description: taskDescription, task_id: taskId }),
+    }),
+  listPlans: () => request<any[]>('/api/core/orchestrate/plans'),
+  getPlanStatus: (taskId: string) => request<any>(`/api/core/orchestrate/plans/${taskId}`),
+
+  // Agent 管理
+  listAgents: () => request<any[]>('/api/core/agents'),
+  getAgent: (agentId: string) => request<any>(`/api/core/agents/${agentId}`),
+  startAgent: (agentId: string) => request<any>(`/api/core/agents/${agentId}/start`, { method: 'POST' }),
+  stopAgent: (agentId: string) => request<any>(`/api/core/agents/${agentId}/stop`, { method: 'POST' }),
+
+  // 消息总线
+  listRegisteredAgents: () => request<{ agents: string[] }>('/api/core/message-bus/agents'),
+  getMessageHistory: (agentId?: string, limit?: number) => {
+    const params = new URLSearchParams();
+    if (agentId) params.set('agent_id', agentId);
+    if (limit) params.set('limit', String(limit));
+    const qs = params.toString();
+    return request<any[]>(`/api/core/message-bus/history${qs ? '?' + qs : ''}`);
+  },
+
+  // 共享上下文
+  getContextSnapshot: () => request<any>('/api/core/context/snapshot'),
+  getAgentStates: () => request<any>('/api/core/context/agents'),
+  getProjectInfo: () => request<any>('/api/core/context/project'),
+
+  // 工具注册表
+  listTools: () => request<any[]>('/api/core/tools'),
+};
