@@ -177,6 +177,7 @@ async def websocket_endpoint(websocket: WebSocket):
 from routes import auth, agents, tasks, workflow, settings, chat, toolbox, db_connections, skills, environment, memories, messages
 from routes.system_settings import router as system_settings_router
 from routes.core import router as core_router
+from routes.workspace import router as workspace_router
 
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(agents.router, prefix="/api/agents", tags=["agents"])
@@ -192,6 +193,7 @@ app.include_router(environment.router, prefix="/api/environment", tags=["environ
 app.include_router(messages.router, prefix="/api/messages", tags=["messages"])
 app.include_router(system_settings_router, prefix="/api/system-settings", tags=["system-settings"])
 app.include_router(core_router, prefix="/api/core", tags=["core"])
+app.include_router(workspace_router, prefix="/api/workspace", tags=["workspace"])
 
 # 导出manager供其他模块使用
 __all__ = ["app", "manager"]
