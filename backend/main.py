@@ -99,10 +99,33 @@ async def startup_event():
     dispatcher.start()
     logger.info("任务调度器已随应用启动")
 
+    # 初始化新核心基础设施
+    from core.bridge import initialize_core
+    workspace = os.environ.get("NIX_WORKSPACE", os.path.dirname(__file__))
+    llm_config = None
+    try:
+        from services.llm_service import llm as default_llm
+        if default_llm:
+            # 从现有 LLM 服务提取配置
+            llm_config = {
+                "api_key": getattr(default_llm, 'openai_api_key', ''),
+                "model": getattr(default_llm, 'model_name', 'gpt-3.5-turbo'),
+                "base_url": getattr(default_llm, 'openai_api_base', None),
+            }
+    except Exception:
+        pass
+    await initialize_core(workspace_root=workspace, llm_config=llm_config)
+    logger.info("新核心基础设施已初始化")
+
 @app.on_event("shutdown")
 async def shutdown_event():
     ai_thread_pool.shutdown(wait=False)
     logger.info("AI 线程池已关闭")
+
+    # 关闭新核心
+    from core.bridge import shutdown_core
+    await shutdown_core()
+    logger.info("核心基础设施已关闭")
 
 # 配置CORS
 app.add_middleware(
@@ -153,6 +176,7 @@ async def websocket_endpoint(websocket: WebSocket):
 # 导入路由
 from routes import auth, agents, tasks, workflow, settings, chat, toolbox, db_connections, skills, environment, memories, messages
 from routes.system_settings import router as system_settings_router
+from routes.core import router as core_router
 
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(agents.router, prefix="/api/agents", tags=["agents"])
@@ -167,6 +191,7 @@ app.include_router(memories.router, prefix="/api/memories", tags=["memories"])
 app.include_router(environment.router, prefix="/api/environment", tags=["environment"])
 app.include_router(messages.router, prefix="/api/messages", tags=["messages"])
 app.include_router(system_settings_router, prefix="/api/system-settings", tags=["system-settings"])
+app.include_router(core_router, prefix="/api/core", tags=["core"])
 
 # 导出manager供其他模块使用
 __all__ = ["app", "manager"]
